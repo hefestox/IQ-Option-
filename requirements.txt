@@ -1,1 +1,7 @@
-iqoptionapi
+flask
+flask-cors
+psycopg2-binary
+python-dotenv
+pyjwt
+bcrypt
+gunicorn
