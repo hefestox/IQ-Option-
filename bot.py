@@ -190,11 +190,28 @@ def auto_fibo(candles: list) -> str | None:
     if len(candles) < 2:
         return None
 
+    # Debug: log the candle structure once so we can see what keys the API returns
+    sample = candles[-1]
+    log.debug(f"Candle keys available: {list(sample.keys())}")
+
     ultimo  = candles[-1]
     close   = ultimo["close"]
     open_   = ultimo["open"]
-    low_    = min(c["low"]  for c in candles[-3:])
-    high_   = max(c["high"] for c in candles[-3:])
+
+    # IQ Option API may not include 'low'/'high' in every response format.
+    # Fall back to deriving them from 'open' and 'close' when absent.
+    def _low(c: dict) -> float:
+        if "low" in c:
+            return c["low"]
+        return min(c["open"], c["close"])
+
+    def _high(c: dict) -> float:
+        if "high" in c:
+            return c["high"]
+        return max(c["open"], c["close"])
+
+    low_    = min(_low(c)  for c in candles[-3:])
+    high_   = max(_high(c) for c in candles[-3:])
     rng     = abs(high_ - low_)
 
     if rng == 0:
