@@ -22,21 +22,20 @@ import os
 import time
 import math
 import logging
+import requests
 from datetime import datetime
 from iqoptionapi.stable_api import IQ_Option
 
 # ─────────────────────────────────────────────
 # CONFIGURAÇÕES (lidas do ambiente Railway)
 # ─────────────────────────────────────────────
-EMAIL      = os.getenv("IQ_EMAIL",    "seu_email@gmail.com")
-PASSWORD   = os.getenv("IQ_PASSWORD", "sua_senha")
 ATIVO      = os.getenv("IQ_ATIVO",    "EURUSD-OTC")
 MODO       = os.getenv("IQ_MODO",     "REAL")   # REAL ou PRACTICE
 
-# ── Debug: verificar se as variáveis de ambiente foram carregadas ──
-# Imprime True/False sem expor os valores reais
-print(f"[DEBUG] IQ_EMAIL loaded:    {bool(EMAIL and EMAIL != 'seu_email@gmail.com')}")
-print(f"[DEBUG] IQ_PASSWORD loaded: {bool(PASSWORD and PASSWORD != 'sua_senha')}")
+# ── IQ Bot Platform API ───────────────────────
+API_URL     = os.getenv("API_URL",     "http://iq-bot-api.railway.internal")
+BOT_API_KEY = os.getenv("BOT_API_KEY", "")
+USER_ID     = os.getenv("USER_ID",     "")
 
 TIMEFRAME  = 5       # minutos
 EXPIRACAO  = 5       # minutos
@@ -71,6 +70,69 @@ logging.basicConfig(
     ]
 )
 log = logging.getLogger("IQBot")
+
+
+# ═══════════════════════════════════════════
+#  IQ BOT PLATFORM API
+# ═══════════════════════════════════════════
+
+def fetch_user_credentials(user_id: str) -> dict | None:
+    """
+    Fetches IQ Option credentials and credit balance for a given user
+    from the IQ Bot Platform API.
+
+    Returns a dict with keys: email, password, credits
+    Returns None on any error.
+    """
+    url = f"{API_URL}/api/user/iq-credentials/{user_id}"
+    headers = {"X-API-Key": BOT_API_KEY}
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        log.info(f"[API] Credentials fetched for user {user_id} | credits={data.get('credits')}")
+        return {
+            "email":    data["email"],
+            "password": data["password"],
+            "credits":  data["credits"],
+        }
+    except requests.exceptions.HTTPError as e:
+        log.error(f"[API] HTTP error fetching credentials for user {user_id}: {e} — response: {resp.text}")
+    except requests.exceptions.ConnectionError as e:
+        log.error(f"[API] Connection error fetching credentials for user {user_id}: {e}")
+    except requests.exceptions.Timeout:
+        log.error(f"[API] Timeout fetching credentials for user {user_id}")
+    except (KeyError, ValueError) as e:
+        log.error(f"[API] Unexpected response format for user {user_id}: {e}")
+    return None
+
+
+def consume_credit(user_id: str) -> bool:
+    """
+    Deducts 1 credit from the user's balance via the IQ Bot Platform API.
+
+    Returns True on success, False on failure.
+    """
+    url = f"{API_URL}/api/user/iq-credentials/{user_id}/consume-credit"
+    headers = {"X-API-Key": BOT_API_KEY}
+
+    try:
+        resp = requests.post(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        remaining = data.get("credits", "?")
+        log.info(f"[API] Credit consumed for user {user_id} | remaining credits={remaining}")
+        return True
+    except requests.exceptions.HTTPError as e:
+        log.error(f"[API] HTTP error consuming credit for user {user_id}: {e} — response: {resp.text}")
+    except requests.exceptions.ConnectionError as e:
+        log.error(f"[API] Connection error consuming credit for user {user_id}: {e}")
+    except requests.exceptions.Timeout:
+        log.error(f"[API] Timeout consuming credit for user {user_id}")
+    except (KeyError, ValueError) as e:
+        log.error(f"[API] Unexpected response format consuming credit for user {user_id}: {e}")
+    return False
 
 
 # ═══════════════════════════════════════════
@@ -265,8 +327,9 @@ def sinal_final(candles: list) -> str | None:
 
 class BotIQOption:
 
-    def __init__(self):
-        self.api            = IQ_Option(EMAIL, PASSWORD)
+    def __init__(self, email: str, password: str):
+        self.email          = email
+        self.api            = IQ_Option(email, password)
         self.banca_inicial  = 0.0
         self.banca_atual    = 0.0
         self.resultado_dia  = 0.0
@@ -277,15 +340,14 @@ class BotIQOption:
 
     def conectar(self):
         log.info("Conectando à IQ Option...")
-        log.info(f"[DEBUG] Tentando login com email: {EMAIL!r}")
+        log.info(f"[DEBUG] Tentando login com email: {self.email!r}")
         ok, reason = self.api.connect()
         if not ok:
             if reason == "invalid_credentials":
                 raise ConnectionError(
                     f"Falha de autenticação (invalid_credentials). "
-                    f"Verifique se IQ_EMAIL e IQ_PASSWORD estão corretos nas variáveis de ambiente. "
-                    f"EMAIL carregado: {bool(EMAIL and EMAIL != 'seu_email@gmail.com')} | "
-                    f"PASSWORD carregado: {bool(PASSWORD and PASSWORD != 'sua_senha')}"
+                    f"Verifique se as credenciais retornadas pela API estão corretas. "
+                    f"Email utilizado: {self.email!r}"
                 )
             raise ConnectionError(f"Falha ao conectar: {reason}")
         self.api.change_balance(MODO)
@@ -358,13 +420,14 @@ class BotIQOption:
 
     # ── loop principal ────────────────────────
 
-    def rodar(self):
+    def rodar(self, user_id: str):
         self.conectar()
         self.atualizar_banca()
 
         meta_val = self.banca_inicial * META_PCT
         stop_val = self.banca_inicial * STOP_PCT
         log.info("=" * 55)
+        log.info(f"Usuário: {user_id}")
         log.info(f"Banca: ${self.banca_inicial:.2f} | Meta: +${meta_val:.2f} | Stop: -${stop_val:.2f}")
         log.info(f"Ativo: {ATIVO} | TF: {TIMEFRAME}min | Exp: {EXPIRACAO}min")
         log.info("=" * 55)
@@ -378,11 +441,26 @@ class BotIQOption:
                     log.info("Bot encerrado para hoje. 👋")
                     break
 
+                # ── verificar créditos antes de operar ──────────
+                creds = fetch_user_credentials(user_id)
+                if creds is None:
+                    log.error("[Créditos] Não foi possível verificar créditos. Aguardando próximo candle...")
+                    continue
+
+                if creds["credits"] <= 0:
+                    log.warning(f"[Créditos] Usuário {user_id} sem créditos. Encerrando bot. 🛑")
+                    break
+
+                log.info(f"[Créditos] Créditos disponíveis: {creds['credits']}")
+
                 candles = self.obter_candles()
                 sinal   = sinal_final(candles)
 
                 if sinal:
                     self.operar(sinal)
+                    # ── consumir 1 crédito após trade executado ──
+                    if not consume_credit(user_id):
+                        log.warning("[Créditos] Falha ao consumir crédito — trade já executado.")
                 else:
                     log.info("⏸ Sem sinal — aguardando próximo candle...")
 
@@ -395,5 +473,26 @@ class BotIQOption:
 
 
 if __name__ == "__main__":
-    bot = BotIQOption()
-    bot.rodar()
+    user_id = USER_ID
+    if not user_id:
+        raise SystemExit(
+            "USER_ID não definido. "
+            "Configure a variável de ambiente USER_ID com o ID do usuário a operar."
+        )
+
+    log.info(f"[Startup] Buscando credenciais para usuário: {user_id}")
+    creds = fetch_user_credentials(user_id)
+    if creds is None:
+        raise SystemExit(
+            f"Não foi possível obter credenciais para o usuário {user_id}. "
+            "Verifique API_URL e BOT_API_KEY."
+        )
+
+    if creds["credits"] <= 0:
+        raise SystemExit(
+            f"Usuário {user_id} não possui créditos suficientes para iniciar o bot."
+        )
+
+    log.info(f"[Startup] Créditos disponíveis: {creds['credits']}")
+    bot = BotIQOption(email=creds["email"], password=creds["password"])
+    bot.rodar(user_id=user_id)
