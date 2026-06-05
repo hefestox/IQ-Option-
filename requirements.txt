@@ -7,3 +7,4 @@ bcrypt
 gunicorn
 requests
 iqoptionapi
+websocket-client
