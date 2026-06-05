@@ -33,6 +33,11 @@ PASSWORD   = os.getenv("IQ_PASSWORD", "sua_senha")
 ATIVO      = os.getenv("IQ_ATIVO",    "EURUSD-OTC")
 MODO       = os.getenv("IQ_MODO",     "REAL")   # REAL ou PRACTICE
 
+# ── Debug: verificar se as variáveis de ambiente foram carregadas ──
+# Imprime True/False sem expor os valores reais
+print(f"[DEBUG] IQ_EMAIL loaded:    {bool(EMAIL and EMAIL != 'seu_email@gmail.com')}")
+print(f"[DEBUG] IQ_PASSWORD loaded: {bool(PASSWORD and PASSWORD != 'sua_senha')}")
+
 TIMEFRAME  = 5       # minutos
 EXPIRACAO  = 5       # minutos
 META_PCT   = 0.05    # +5% → para o dia
@@ -255,9 +260,17 @@ class BotIQOption:
 
     def conectar(self):
         log.info("Conectando à IQ Option...")
+        log.info(f"[DEBUG] Tentando login com email: {EMAIL!r}")
         ok, reason = self.api.connect()
         if not ok:
-            raise ConnectionError(f"Falha: {reason}")
+            if reason == "invalid_credentials":
+                raise ConnectionError(
+                    f"Falha de autenticação (invalid_credentials). "
+                    f"Verifique se IQ_EMAIL e IQ_PASSWORD estão corretos nas variáveis de ambiente. "
+                    f"EMAIL carregado: {bool(EMAIL and EMAIL != 'seu_email@gmail.com')} | "
+                    f"PASSWORD carregado: {bool(PASSWORD and PASSWORD != 'sua_senha')}"
+                )
+            raise ConnectionError(f"Falha ao conectar: {reason}")
         self.api.change_balance(MODO)
         log.info(f"Conectado! Modo: {MODO}")
 
