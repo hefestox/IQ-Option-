@@ -28,9 +28,9 @@ from iqoptionapi.stable_api import IQ_Option
 # ─────────────────────────────────────────────
 # CONFIGURAÇÕES (lidas do ambiente Railway)
 # ─────────────────────────────────────────────
-EMAIL      = os.getenv("IQ_EMAIL",    "seu_email@gmail.com")
-PASSWORD   = os.getenv("IQ_PASSWORD", "sua_senha")
-ATIVO      = os.getenv("IQ_ATIVO",    "EURUSD")
+EMAIL      = os.getenv("IQ_EMAIL",    "missaoepalavra@gmail.com")
+PASSWORD   = os.getenv("IQ_PASSWORD", "87347748")
+ATIVO      = os.getenv("IQ_ATIVO",    "EURUSD-OTC")
 MODO       = os.getenv("IQ_MODO",     "REAL")   # REAL ou PRACTICE
 
 TIMEFRAME  = 5       # minutos
