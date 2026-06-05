@@ -23,7 +23,7 @@ import time
 import math
 import logging
 from datetime import datetime
-from iqoptionapi import IQ_Option
+from iqoptionapi.api import IQ_Option
 
 # ─────────────────────────────────────────────
 # CONFIGURAÇÕES (lidas do ambiente Railway)
